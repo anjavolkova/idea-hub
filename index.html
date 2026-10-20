@@ -1,0 +1,882 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Idea Corkboard</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;800&family=Gochi+Hand&display=swap">
+<style>
+/* Layout: a full-screen pannable cork wall, a floating label-maker toolbar on top,
+   and a quick-add dock pinned to the bottom edge. */
+:root {
+  --cork: #c49a6c;
+  --cork-dark: #8e6a43;
+  --frame: #5b3b22;
+  --ink: #2b2118;
+  --paper: #fffaf0;
+  --muted: #6b5a49;
+  --yarn: #c8102e;
+  --note-repeat: #b9eaa2;
+  --note-once: #ffa9cf;
+  --note-fragment: #fff27e;
+  --note-ink: #2b2118;
+  --dock-bg: rgba(255, 250, 240, 0.94);
+  --dock-line: rgba(43, 33, 24, 0.18);
+  --focus: #1f6feb;
+  --font-hand: "Gochi Hand", "Comic Sans MS", "Segoe Print", cursive;
+  --font-ui: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --cork: #7a5a3a; --cork-dark: #4c3520; --frame: #24160b; --ink: #f4e9da; --paper: #2a2018;
+    --muted: #c9b59c; --yarn: #ff4057; --note-repeat: #9fd68a; --note-once: #f38fbd; --note-fragment: #f2e36a;
+    --dock-bg: rgba(36, 27, 19, 0.94); --dock-line: rgba(244, 233, 218, 0.18); --focus: #79b8ff;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --cork: #7a5a3a; --cork-dark: #4c3520; --frame: #24160b; --ink: #f4e9da; --paper: #2a2018;
+  --muted: #c9b59c; --yarn: #ff4057; --note-repeat: #9fd68a; --note-once: #f38fbd; --note-fragment: #f2e36a;
+  --dock-bg: rgba(36, 27, 19, 0.94); --dock-line: rgba(244, 233, 218, 0.18); --focus: #79b8ff;
+  color-scheme: dark;
+}
+
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body {
+  margin: 0; overflow: hidden; background: var(--frame); color: var(--ink);
+  font: 14px/1.4 var(--font-ui);
+  -webkit-tap-highlight-color: transparent;
+}
+button, input, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+
+.app { position: relative; height: 100%; display: flex; flex-direction: column; }
+
+/* ---------- the wall ---------- */
+.stage {
+  position: relative; flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain;
+  border: 10px solid var(--frame);
+  box-shadow: inset 0 0 40px rgba(0,0,0,.45);
+}
+.sizer { position: relative; }
+.board {
+  position: absolute; left: 0; top: 0; transform-origin: 0 0;
+  background-color: var(--cork);
+  background-image:
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' seed='7'/><feColorMatrix values='0 0 0 0 .25  0 0 0 0 .16  0 0 0 0 .08  0 0 0 .55 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>"),
+    radial-gradient(circle at 20% 30%, rgba(255,255,255,.08) 0 2px, transparent 3px),
+    radial-gradient(circle at 70% 60%, rgba(0,0,0,.12) 0 2px, transparent 3px);
+  background-size: 240px 240px, 23px 23px, 31px 31px;
+}
+.board.stringing { cursor: crosshair; }
+
+svg.strings { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+.yarn { fill: none; stroke: var(--yarn); stroke-width: 3; stroke-linecap: round; filter: drop-shadow(0 2px 1.5px rgba(0,0,0,.45)); }
+.yarn.ai { stroke-dasharray: 9 5; }
+.yarn.live { opacity: .7; }
+.yarn-hit { fill: none; stroke: transparent; stroke-width: 18; pointer-events: stroke; cursor: pointer; }
+.yarn-tag {
+  position: absolute; transform: translate(-50%, -50%); max-width: 180px; padding: 2px 7px;
+  background: var(--paper); color: var(--ink); border: 1px solid var(--yarn); border-radius: 3px;
+  font: 600 11px/1.3 var(--font-ui); text-align: center; pointer-events: auto; cursor: pointer;
+  box-shadow: 0 2px 4px rgba(0,0,0,.25);
+}
+
+/* ---------- notes ---------- */
+.note {
+  position: absolute; width: 176px; min-height: 150px; padding: 26px 14px 14px;
+  box-sizing: border-box; color: var(--note-ink);
+  font: 21px/1.15 var(--font-hand); word-wrap: break-word; overflow-wrap: anywhere;
+  box-shadow: 0 1px 1px rgba(0,0,0,.15), 0 8px 14px -6px rgba(0,0,0,.45);
+  transform: rotate(var(--rot, 0deg)); touch-action: none; user-select: none; cursor: grab;
+  transition: box-shadow .15s, transform .15s;
+  background-image: linear-gradient(180deg, rgba(255,255,255,.25), rgba(0,0,0,.04) 70%, rgba(0,0,0,.08));
+}
+.note[data-kind="repeat"] { background-color: var(--note-repeat); }
+.note[data-kind="once"] { background-color: var(--note-once); }
+.note[data-kind="fragment"] { background-color: var(--note-fragment); }
+.note.dragging { cursor: grabbing; transform: rotate(0deg) scale(1.05); box-shadow: 0 18px 28px -8px rgba(0,0,0,.55); }
+.note.selected { outline: 3px solid var(--focus); outline-offset: 3px; }
+.note.flash { animation: flash 1.2s ease 2; }
+.note.dropped { animation: drop .35s cubic-bezier(.2,1.4,.4,1); }
+@keyframes flash { 50% { box-shadow: 0 0 0 8px var(--yarn), 0 8px 14px -6px rgba(0,0,0,.45); } }
+@keyframes drop { from { transform: translateY(-40px) rotate(-8deg) scale(1.15); opacity: 0; } }
+.note .pin {
+  position: absolute; left: 50%; top: 6px; width: 16px; height: 16px; margin-left: -8px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #ff8a8a, #c8102e 55%, #6d0010);
+  box-shadow: 1px 3px 3px rgba(0,0,0,.45);
+}
+.note .text { white-space: pre-wrap; min-height: 1.2em; }
+.note textarea {
+  width: 100%; min-height: 96px; border: 0; padding: 0; resize: none; background: transparent;
+  font: inherit; color: inherit; outline: 1px dashed rgba(0,0,0,.35);
+}
+.note .kindtag {
+  position: absolute; left: 10px; bottom: 6px; font: 700 9.5px/1 var(--font-ui);
+  letter-spacing: .08em; text-transform: uppercase; opacity: .55;
+}
+.note .rank {
+  position: absolute; right: -10px; top: -10px; width: 30px; height: 30px; border-radius: 50%;
+  display: grid; place-items: center; background: var(--ink); color: var(--paper);
+  font: 800 14px/1 var(--font-ui); box-shadow: 0 2px 5px rgba(0,0,0,.4); transform: rotate(calc(var(--rot, 0deg) * -1));
+}
+.note .actions {
+  position: absolute; left: 50%; bottom: -42px; transform: translateX(-50%) rotate(calc(var(--rot, 0deg) * -1));
+  display: none; gap: 4px; padding: 4px; border-radius: 8px; background: var(--paper);
+  box-shadow: 0 4px 12px rgba(0,0,0,.35); z-index: 2; white-space: nowrap;
+}
+.note.selected .actions { display: flex; }
+.actions button {
+  display: grid; place-items: center; width: 34px; height: 30px; padding: 0;
+  border: 1px solid var(--dock-line); border-radius: 6px; background: transparent;
+}
+.actions button:hover { background: rgba(127,127,127,.15); }
+.actions svg { width: 18px; height: 18px; stroke: var(--ink); fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.actions .swatch { width: 16px; height: 16px; border-radius: 3px; border: 1px solid rgba(0,0,0,.3); }
+
+/* ---------- top toolbar (label-maker strip) ---------- */
+.toolbar {
+  position: absolute; z-index: 20; top: 18px; right: max(18px, calc(env(safe-area-inset-right, 0px) + 18px));
+  left: max(18px, calc(env(safe-area-inset-left, 0px) + 18px));
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; justify-content: space-between; pointer-events: none;
+}
+.toolbar > * { pointer-events: auto; }
+.brand {
+  display: flex; align-items: center; gap: 10px; padding: 6px 12px; background: #1c1c1c; color: #f5f5f5;
+  font: 800 13px/1 var(--font-ui); letter-spacing: .14em; text-transform: uppercase; border-radius: 3px;
+  box-shadow: 0 3px 8px rgba(0,0,0,.4); transform: rotate(-1deg);
+}
+.brand small { font-weight: 400; letter-spacing: .04em; text-transform: none; opacity: .7; }
+.tools { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+.tbtn {
+  display: inline-flex; align-items: center; gap: 6px; padding: 7px 11px; border-radius: 6px;
+  border: 1px solid var(--dock-line); background: var(--dock-bg); color: var(--ink);
+  font-weight: 600; font-size: 13px; box-shadow: 0 2px 6px rgba(0,0,0,.25);
+}
+.tbtn:hover { filter: brightness(1.05); }
+.tbtn[disabled] { opacity: .5; cursor: progress; }
+.tbtn.ai { border-color: var(--yarn); }
+.tbtn .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--yarn); }
+
+/* ---------- legend ---------- */
+.legend {
+  position: absolute; z-index: 15; left: max(18px, calc(env(safe-area-inset-left, 0px) + 18px)); top: 62px;
+  display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; background: var(--dock-bg);
+  border-radius: 6px; box-shadow: 0 2px 6px rgba(0,0,0,.25); font-size: 12px;
+}
+.legend div { display: flex; align-items: center; gap: 7px; }
+.legend i { width: 12px; height: 12px; border-radius: 2px; border: 1px solid rgba(0,0,0,.25); }
+.legend .count { margin-left: auto; padding-left: 10px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* ---------- quick-add dock ---------- */
+.dock {
+  flex: none; position: relative; z-index: 30; background: var(--dock-bg); border-top: 1px solid var(--dock-line);
+  padding-block: 10px calc(10px + env(safe-area-inset-bottom, 0px));
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.dock form { display: flex; gap: 8px; align-items: stretch; max-width: 980px; margin: 0 auto; }
+.dock textarea {
+  flex: 1; min-width: 0; min-height: 44px; max-height: 120px; padding: 10px 12px; resize: none; box-sizing: border-box;
+  border: 1px solid var(--dock-line); border-radius: 8px; background: var(--paper);
+  font: 20px/1.15 var(--font-hand);
+}
+.kinds { display: flex; gap: 6px; }
+.kindbtn {
+  display: flex; flex-direction: column; justify-content: center; gap: 1px; min-width: 96px; padding: 6px 10px;
+  border: 2px solid transparent; border-radius: 8px; color: var(--note-ink); text-align: left;
+  box-shadow: 0 2px 0 rgba(0,0,0,.2);
+}
+.kindbtn b { font: 800 12.5px/1.1 var(--font-ui); }
+.kindbtn span { font-size: 10.5px; opacity: .75; }
+.kindbtn kbd { font: 10px var(--font-ui); opacity: .6; }
+.kindbtn[data-kind="repeat"] { background: var(--note-repeat); }
+.kindbtn[data-kind="once"] { background: var(--note-once); }
+.kindbtn[data-kind="fragment"] { background: var(--note-fragment); }
+.kindbtn[aria-pressed="true"] { border-color: var(--note-ink); }
+.dock .hint { max-width: 980px; margin: 6px auto 0; color: var(--muted); font-size: 11.5px; }
+
+/* ---------- side panel (case file) ---------- */
+.panel {
+  position: absolute; z-index: 35; top: 64px; right: 0; bottom: 0; width: min(360px, 100%); border-top-left-radius: 10px; box-sizing: border-box;
+  background: var(--paper); color: var(--ink); box-shadow: -8px 0 24px rgba(0,0,0,.35);
+  display: flex; flex-direction: column;
+  padding-right: env(safe-area-inset-right, 0px);
+}
+.panel header { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid var(--dock-line); }
+.panel h2 { margin: 0; font: 800 15px/1.2 var(--font-ui); letter-spacing: .1em; text-transform: uppercase; }
+.panel .body { flex: 1; overflow: auto; padding: 12px 16px 24px; display: flex; flex-direction: column; gap: 16px; }
+.panel h3 { margin: 0 0 6px; font: 700 12px/1.2 var(--font-ui); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.panel ol, .panel ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
+.panel li button {
+  width: 100%; text-align: left; display: grid; grid-template-columns: 26px 1fr; gap: 8px; padding: 8px;
+  border: 1px solid var(--dock-line); border-radius: 6px; background: transparent;
+}
+.panel li button:hover { background: rgba(127,127,127,.1); }
+.panel .num { font: 800 15px/1.2 var(--font-ui); font-variant-numeric: tabular-nums; }
+.panel .idea { font: 18px/1.1 var(--font-hand); }
+.panel .why { display: block; margin-top: 3px; font-size: 12px; color: var(--muted); }
+.panel .theme { padding: 10px; border-left: 4px solid var(--yarn); background: rgba(127,127,127,.08); border-radius: 0 6px 6px 0; }
+.panel .theme b { display: block; margin-bottom: 3px; }
+.panel .empty { color: var(--muted); }
+.iconbtn { display: grid; place-items: center; width: 32px; height: 32px; border: 1px solid var(--dock-line); border-radius: 6px; background: transparent; }
+
+/* ---------- dialog + toast ---------- */
+dialog {
+  border: 0; border-radius: 10px; padding: 20px; width: min(440px, calc(100vw - 32px)); box-sizing: border-box;
+  background: var(--paper); color: var(--ink); box-shadow: 0 20px 50px rgba(0,0,0,.5);
+}
+dialog::backdrop { background: rgba(0,0,0,.5); }
+dialog h2 { margin: 0 0 8px; font: 800 18px/1.2 var(--font-ui); }
+dialog p { margin: 0 0 12px; color: var(--muted); }
+dialog input { width: 100%; box-sizing: border-box; padding: 9px 10px; border: 1px solid var(--dock-line); border-radius: 6px; background: transparent; }
+dialog .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; flex-wrap: wrap; }
+.toast {
+  position: absolute; z-index: 40; left: 50%; bottom: 120px; transform: translateX(-50%); max-width: calc(100% - 32px);
+  display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-radius: 8px;
+  background: #1c1c1c; color: #f5f5f5; box-shadow: 0 6px 18px rgba(0,0,0,.4);
+}
+.toast button { border: 0; background: transparent; color: #ffd166; font-weight: 700; padding: 0; }
+.examples {
+  position: absolute; z-index: 15; left: 50%; top: 62px; transform: translateX(-50%); max-width: calc(100% - 32px);
+  display: flex; align-items: center; gap: 10px; padding: 7px 12px; border-radius: 6px; background: #1c1c1c; color: #f5f5f5;
+  font-size: 12.5px; box-shadow: 0 3px 8px rgba(0,0,0,.35);
+}
+.examples button { border: 1px solid #f5f5f5; border-radius: 4px; background: transparent; color: #f5f5f5; padding: 3px 8px; font-size: 12px; }
+
+@media (max-width: 720px) {
+  .dock form { flex-direction: column; }
+  .kinds { width: 100%; }
+  .kindbtn { flex: 1; min-width: 0; }
+  .kindbtn span, .kindbtn kbd { display: none; }
+  .legend { display: none; }
+  .brand small { display: none; }
+  .tbtn .label-long { display: none; }
+  .dock .hint { display: none; }
+  .examples { top: 112px; }
+  .toast { bottom: 24px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .note, .note.dropped, .note.flash { animation: none; transition: none; }
+}
+</style>
+</head>
+<body>
+<div class="app" id="app">
+  <div class="toolbar">
+    <div class="brand">Idea Corkboard <small id="saveState">saved</small></div>
+    <div class="tools">
+      <button class="tbtn ai" id="btnPrioritize" type="button"><span class="dot"></span>Prioritize</button>
+      <button class="tbtn ai" id="btnConnect" type="button"><span class="dot"></span>Connect the dots</button>
+      <button class="tbtn" id="btnPanel" type="button">Case file</button>
+      <button class="tbtn" id="btnZoomOut" type="button" aria-label="Zoom out">−</button>
+      <button class="tbtn" id="btnZoomIn" type="button" aria-label="Zoom in">+</button>
+      <button class="tbtn" id="btnMore" type="button" aria-label="Board menu">⋯</button>
+    </div>
+  </div>
+
+  <div class="legend" aria-label="Color key">
+    <div><i style="background:var(--note-repeat)"></i>Repeatable <span class="count" id="cRepeat">0</span></div>
+    <div><i style="background:var(--note-once)"></i>One-and-done <span class="count" id="cOnce">0</span></div>
+    <div><i style="background:var(--note-fragment)"></i>Fragment <span class="count" id="cFragment">0</span></div>
+  </div>
+
+  <div class="examples" id="examplesBar" hidden>
+    These are example notes.
+    <button type="button" id="btnClearExamples">Clear them</button>
+  </div>
+
+  <div class="stage" id="stage">
+    <div class="sizer" id="sizer">
+      <div class="board" id="board">
+        <svg class="strings" id="strings"></svg>
+      </div>
+    </div>
+  </div>
+
+  <div class="dock">
+    <form id="addForm" autocomplete="off">
+      <textarea id="ideaInput" rows="1" placeholder="Got an idea? Type it, then tap a color." aria-label="New idea"></textarea>
+      <div class="kinds" role="group" aria-label="Post as">
+        <button type="submit" class="kindbtn" data-kind="repeat" aria-pressed="false"><b>Repeatable</b><span>do it again &amp; again</span><kbd>Alt+1</kbd></button>
+        <button type="submit" class="kindbtn" data-kind="once" aria-pressed="false"><b>One-and-done</b><span>do it once</span><kbd>Alt+2</kbd></button>
+        <button type="submit" class="kindbtn" data-kind="fragment" aria-pressed="true"><b>Fragment</b><span>half an idea</span><kbd>Alt+3</kbd></button>
+      </div>
+    </form>
+    <p class="hint">Enter posts with the outlined color. Drag notes to move them. Tap a note for string, color and delete. Double-click to edit. Press N to jump back here.</p>
+  </div>
+
+  <aside class="panel" id="panel" hidden aria-label="Case file">
+    <header><h2>Case file</h2><button class="iconbtn" id="btnPanelClose" type="button" aria-label="Close case file">✕</button></header>
+    <div class="body" id="panelBody"></div>
+  </aside>
+
+  <div class="toast" id="toast" hidden role="status"><span id="toastMsg"></span><button type="button" id="toastAction" hidden></button></div>
+
+  <dialog id="keyDialog">
+    <form method="dialog" id="keyForm">
+      <h2>Connect an AI</h2>
+      <p>Prioritize and Connect the dots call Claude with your own Anthropic API key. The key stays in this browser and is sent only to api.anthropic.com.</p>
+      <label for="keyInput" style="display:block;margin-bottom:6px;font-weight:600">Anthropic API key</label>
+      <input id="keyInput" type="password" placeholder="sk-ant-…" autocomplete="off">
+      <div class="row">
+        <button class="tbtn" value="forget" id="keyForget" type="submit">Forget key</button>
+        <button class="tbtn" value="cancel" type="submit">Cancel</button>
+        <button class="tbtn ai" value="save" type="submit">Save key</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="moreDialog">
+    <form method="dialog">
+      <h2>Board</h2>
+      <p>Your board saves automatically<span id="whereSaved"> in this browser</span>.</p>
+      <div class="row" style="justify-content:flex-start">
+        <button class="tbtn" type="button" id="btnExport">Export JSON</button>
+        <button class="tbtn" type="button" id="btnImport">Import JSON</button>
+        <button class="tbtn" type="button" id="btnTidy">Tidy into columns</button>
+        <button class="tbtn" type="button" id="btnClearAI">Remove AI strings &amp; ranks</button>
+        <button class="tbtn" type="button" id="btnKey">AI key…</button>
+      </div>
+      <input type="file" id="importFile" accept="application/json,.json" hidden>
+      <div class="row"><button class="tbtn" value="close" type="submit">Done</button></div>
+    </form>
+  </dialog>
+</div>
+
+<script>
+(() => {
+  "use strict";
+  const W = 2600, H = 1700, NOTE_W = 176, NOTE_H = 150;
+  const KINDS = {
+    repeat: { label: "Repeatable", hint: "something you could do again and again" },
+    once: { label: "One-and-done", hint: "a single project or action" },
+    fragment: { label: "Fragment", hint: "an incomplete piece of an idea" },
+  };
+  const KIND_ORDER = ["repeat", "once", "fragment"];
+  const LS_KEY = "idea-corkboard:v1", LS_PREFS = "idea-corkboard:prefs", LS_APIKEY = "idea-corkboard:anthropic-key";
+  const inViewer = !!(window.claude && typeof window.claude.use === "function");
+
+  const $ = (id) => document.getElementById(id);
+  const stage = $("stage"), sizer = $("sizer"), board = $("board"), svg = $("strings");
+  const input = $("ideaInput"), form = $("addForm");
+
+  const store = {
+    get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch {} },
+    del(k) { try { localStorage.removeItem(k); } catch {} },
+  };
+  const uid = () => Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-3);
+  const rot = () => Math.round((Math.random() * 7 - 3.5) * 10) / 10;
+
+  // ---------- state ----------
+  function exampleState() {
+    const n = (text, kind, x, y) => ({ id: uid(), text, kind, x, y, rot: rot(), z: 1, created: Date.now(), example: true });
+    const notes = [
+      n("An idea board that looks like a cork wall. Pepe Silvia energy.", "once", 300, 170),
+      n("Sunday soup for whoever shows up", "repeat", 560, 260),
+      n("something about maps of where my ideas come from??", "fragment", 380, 420),
+      n("Write one weird short story a month", "repeat", 820, 180),
+      n("Fix the wobbly bike wheel", "once", 790, 420),
+      n("color = mood?", "fragment", 600, 520),
+    ];
+    return { notes, strings: [{ id: uid(), a: notes[0].id, b: notes[2].id, why: "", ai: false }], ai: null, updatedAt: 0 };
+  }
+  function normalize(s) {
+    if (!s || !Array.isArray(s.notes)) return null;
+    s.notes = s.notes.filter((n) => n && n.id && KINDS[n.kind]).map((n) => ({ ...n, text: String(n.text || "") }));
+    const ids = new Set(s.notes.map((n) => n.id));
+    s.strings = (Array.isArray(s.strings) ? s.strings : []).filter((t) => ids.has(t.a) && ids.has(t.b));
+    s.ai = s.ai && typeof s.ai === "object" ? s.ai : null;
+    s.updatedAt = s.updatedAt || 0;
+    return s;
+  }
+  let state = (() => { try { return normalize(JSON.parse(store.get(LS_KEY))); } catch { return null; } })() || exampleState();
+  const prefs = (() => { try { return JSON.parse(store.get(LS_PREFS)) || {}; } catch { return {}; } })();
+  let kind = KINDS[prefs.kind] ? prefs.kind : "fragment";
+  let scale = prefs.scale || (window.innerWidth < 720 ? 0.8 : 1);
+  let selectedId = null;
+  let stringFrom = null; // note id while drawing a string
+  let topZ = Math.max(1, ...state.notes.map((n) => n.z || 1));
+
+  // ---------- persistence ----------
+  let dbDoc = null, saveTimer = null;
+  function save() {
+    state.updatedAt = Date.now();
+    store.set(LS_KEY, JSON.stringify(state));
+    $("saveState").textContent = "saving…";
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(async () => {
+      if (dbDoc) {
+        try { await dbDoc.set(JSON.parse(JSON.stringify(state))); } catch (e) { console.warn("db save failed", e); }
+      }
+      $("saveState").textContent = "saved";
+    }, 600);
+  }
+  async function connectDb() {
+    if (!inViewer) return;
+    try {
+      const [db, user] = await Promise.all([window.claude.use("db"), window.claude.use("user")]);
+      const id = db && user && (await user.id());
+      if (!id) return;
+      dbDoc = db.collection("data/users/" + id).doc("board");
+      const snap = await dbDoc.get();
+      const remote = snap.exists ? normalize(snap.data()) : null;
+      if (remote && remote.updatedAt > state.updatedAt) { state = remote; render(); }
+      else if (state.updatedAt) { await dbDoc.set(JSON.parse(JSON.stringify(state))); }
+      $("whereSaved").textContent = " to your Claude account";
+    } catch (e) { console.warn("db unavailable", e); }
+  }
+
+  // ---------- layout / zoom ----------
+  function applyScale(keepCenter = true) {
+    const cx = (stage.scrollLeft + stage.clientWidth / 2) / (sizer.offsetWidth || 1);
+    const cy = (stage.scrollTop + stage.clientHeight / 2) / (sizer.offsetHeight || 1);
+    board.style.width = W + "px"; board.style.height = H + "px";
+    board.style.transform = `scale(${scale})`;
+    sizer.style.width = W * scale + "px"; sizer.style.height = H * scale + "px";
+    if (keepCenter) {
+      stage.scrollLeft = cx * W * scale - stage.clientWidth / 2;
+      stage.scrollTop = cy * H * scale - stage.clientHeight / 2;
+    }
+    prefs.scale = scale; store.set(LS_PREFS, JSON.stringify(prefs));
+  }
+  function zoom(f) { scale = Math.min(1.6, Math.max(0.35, Math.round(scale * f * 100) / 100)); applyScale(); }
+  function toBoard(clientX, clientY) {
+    const r = board.getBoundingClientRect();
+    return { x: (clientX - r.left) / scale, y: (clientY - r.top) / scale };
+  }
+  const pinOf = (n) => ({ x: n.x + NOTE_W / 2, y: n.y + 14 });
+
+  // ---------- rendering ----------
+  const noteEls = new Map();
+  const ICON = {
+    string: '<svg viewBox="0 0 24 24"><circle cx="5" cy="6" r="2.5"/><circle cx="19" cy="18" r="2.5"/><path d="M7 7c6 2 4 8 10 10"/></svg>',
+    edit: '<svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>',
+    trash: '<svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>',
+  };
+  function noteEl(n) {
+    let el = noteEls.get(n.id);
+    if (!el) {
+      el = document.createElement("div");
+      el.className = "note"; el.tabIndex = 0; el.dataset.id = n.id;
+      el.innerHTML = `<span class="pin"></span><div class="text"></div><span class="kindtag"></span>
+        <div class="actions">
+          <button type="button" data-act="string" title="Tie a string to another note" aria-label="Tie a string">${ICON.string}</button>
+          <button type="button" data-act="kind" title="Change color" aria-label="Change color"><span class="swatch"></span></button>
+          <button type="button" data-act="edit" title="Edit" aria-label="Edit">${ICON.edit}</button>
+          <button type="button" data-act="delete" title="Delete" aria-label="Delete">${ICON.trash}</button>
+        </div>`;
+      board.appendChild(el);
+      noteEls.set(n.id, el);
+    }
+    el.dataset.kind = n.kind;
+    el.style.left = n.x + "px"; el.style.top = n.y + "px"; el.style.zIndex = n.z || 1;
+    el.style.setProperty("--rot", (n.rot || 0) + "deg");
+    const t = el.querySelector(".text");
+    if (!el.classList.contains("editing") && t.textContent !== n.text) t.textContent = n.text;
+    el.querySelector(".kindtag").textContent = KINDS[n.kind].label;
+    const nextKind = KIND_ORDER[(KIND_ORDER.indexOf(n.kind) + 1) % 3];
+    el.querySelector(".swatch").style.background = `var(--note-${nextKind})`;
+    el.classList.toggle("selected", n.id === selectedId);
+    const rank = state.ai && state.ai.ranks && state.ai.ranks[n.id];
+    let badge = el.querySelector(".rank");
+    if (rank) {
+      if (!badge) { badge = document.createElement("span"); badge.className = "rank"; el.appendChild(badge); }
+      badge.textContent = rank.rank; badge.title = rank.why || "";
+    } else if (badge) badge.remove();
+    el.setAttribute("aria-label", `${KINDS[n.kind].label} idea: ${n.text}`);
+    return el;
+  }
+  function curve(a, b) {
+    const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy);
+    const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2 + 24 + d * 0.12;
+    return { d: `M${a.x},${a.y} Q${mx},${my} ${b.x},${b.y}`, mid: { x: (a.x + 2 * mx + b.x) / 4, y: (a.y + 2 * my + b.y) / 4 } };
+  }
+  function renderStrings(live) {
+    const byId = new Map(state.notes.map((n) => [n.id, n]));
+    let html = "";
+    board.querySelectorAll(".yarn-tag").forEach((e) => e.remove());
+    for (const s of state.strings) {
+      const a = byId.get(s.a), b = byId.get(s.b);
+      if (!a || !b) continue;
+      const c = curve(pinOf(a), pinOf(b));
+      html += `<path class="yarn${s.ai ? " ai" : ""}" d="${c.d}"/><path class="yarn-hit" data-string="${s.id}" d="${c.d}"><title>${esc(s.why || "Click to cut this string")}</title></path>`;
+      if (s.why) {
+        const tag = document.createElement("div");
+        tag.className = "yarn-tag"; tag.dataset.string = s.id; tag.textContent = s.why;
+        tag.style.left = c.mid.x + "px"; tag.style.top = c.mid.y + "px"; tag.style.zIndex = topZ + 1;
+        board.appendChild(tag);
+      }
+    }
+    if (live) html += `<path class="yarn live" d="${curve(live.a, live.b).d}"/>`;
+    svg.innerHTML = html;
+    svg.style.zIndex = topZ + 1;
+  }
+  function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+  function render() {
+    const ids = new Set(state.notes.map((n) => n.id));
+    for (const [id, el] of noteEls) if (!ids.has(id)) { el.remove(); noteEls.delete(id); }
+    state.notes.forEach(noteEl);
+    renderStrings();
+    const count = (k) => state.notes.filter((n) => n.kind === k).length;
+    $("cRepeat").textContent = count("repeat"); $("cOnce").textContent = count("once"); $("cFragment").textContent = count("fragment");
+    $("examplesBar").hidden = !state.notes.some((n) => n.example);
+    document.querySelectorAll(".kindbtn").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.kind === kind)));
+    if (!$("panel").hidden) renderPanel();
+  }
+
+  // ---------- adding ----------
+  function freeSpot() {
+    const cx = (stage.scrollLeft + stage.clientWidth / 2) / scale - NOTE_W / 2;
+    const cy = (stage.scrollTop + stage.clientHeight / 2) / scale - NOTE_H / 2;
+    const clash = (x, y) => state.notes.some((n) => Math.abs(n.x - x) < NOTE_W * 0.7 && Math.abs(n.y - y) < NOTE_H * 0.7);
+    for (let ring = 0; ring < 8; ring++) {
+      for (let i = 0; i < 8; i++) {
+        const ang = (i / 8) * Math.PI * 2 + ring, r = ring * 120;
+        const x = Math.round(cx + Math.cos(ang) * r * 1.3), y = Math.round(cy + Math.sin(ang) * r);
+        if (x > 10 && y > 60 && x < W - NOTE_W - 10 && y < H - NOTE_H - 10 && !clash(x, y)) return { x, y };
+        if (ring === 0) break;
+      }
+    }
+    return { x: Math.round(cx + Math.random() * 60 - 30), y: Math.round(cy + Math.random() * 60 - 30) };
+  }
+  function setKind(k) { kind = k; prefs.kind = k; store.set(LS_PREFS, JSON.stringify(prefs)); render(); }
+  function addIdea(k) {
+    const text = input.value.trim();
+    if (!text) { setKind(k); input.focus(); return; }
+    setKind(k);
+    const { x, y } = freeSpot();
+    const n = { id: uid(), text, kind: k, x, y, rot: rot(), z: ++topZ, created: Date.now() };
+    state.notes.push(n);
+    input.value = ""; autosize();
+    render(); save();
+    const el = noteEls.get(n.id);
+    el.classList.add("dropped"); setTimeout(() => el.classList.remove("dropped"), 400);
+    input.focus();
+  }
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const k = e.submitter && e.submitter.dataset.kind;
+    addIdea(KINDS[k] ? k : kind);
+  });
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); addIdea(kind); }
+  });
+  function autosize() { input.style.height = "auto"; input.style.height = Math.min(120, input.scrollHeight + 2) + "px"; }
+  input.addEventListener("input", autosize);
+  document.addEventListener("keydown", (e) => {
+    if (e.altKey && ["1", "2", "3"].includes(e.key)) { e.preventDefault(); const k = KIND_ORDER[+e.key - 1]; input.value.trim() ? addIdea(k) : setKind(k); return; }
+    const typing = /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName);
+    if (e.key === "Escape") { cancelString(); select(null); }
+    if (!typing && (e.key === "n" || e.key === "/")) { e.preventDefault(); input.focus(); }
+    if (!typing && selectedId && (e.key === "Delete" || e.key === "Backspace")) { e.preventDefault(); removeNote(selectedId); }
+  });
+
+  // ---------- selecting, dragging, editing ----------
+  function select(id) { selectedId = id; state.notes.forEach(noteEl); }
+  function noteById(id) { return state.notes.find((n) => n.id === id); }
+  let drag = null;
+  board.addEventListener("pointerdown", (e) => {
+    const el = e.target.closest(".note");
+    if (!el || e.target.closest(".actions") || el.classList.contains("editing") || e.button > 0) return;
+    const n = noteById(el.dataset.id);
+    if (stringFrom) return; // handled on click
+    const p = toBoard(e.clientX, e.clientY);
+    drag = { n, el, dx: p.x - n.x, dy: p.y - n.y, sx: e.clientX, sy: e.clientY, moved: false, pid: e.pointerId };
+    el.setPointerCapture(e.pointerId);
+  });
+  board.addEventListener("pointermove", (e) => {
+    if (stringFrom) {
+      const a = noteById(stringFrom);
+      if (a) renderStrings({ a: pinOf(a), b: toBoard(e.clientX, e.clientY) });
+      return;
+    }
+    if (!drag || e.pointerId !== drag.pid) return;
+    if (!drag.moved && Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) < 5) return;
+    if (!drag.moved) { drag.moved = true; drag.n.z = ++topZ; drag.el.style.zIndex = topZ; drag.el.classList.add("dragging"); }
+    const p = toBoard(e.clientX, e.clientY);
+    drag.n.x = Math.round(Math.min(W - NOTE_W, Math.max(0, p.x - drag.dx)));
+    drag.n.y = Math.round(Math.min(H - 60, Math.max(0, p.y - drag.dy)));
+    drag.el.style.left = drag.n.x + "px"; drag.el.style.top = drag.n.y + "px";
+    renderStrings();
+    autoScroll(e);
+  });
+  function endDrag(e) {
+    if (!drag || (e && e.pointerId !== drag.pid)) return;
+    const d = drag; drag = null;
+    d.el.classList.remove("dragging");
+    if (d.moved) { renderStrings(); save(); } else select(d.n.id === selectedId ? null : d.n.id);
+  }
+  board.addEventListener("pointerup", endDrag);
+  board.addEventListener("pointercancel", endDrag);
+  function autoScroll(e) {
+    const r = stage.getBoundingClientRect(), m = 40, sp = 14;
+    if (e.clientX < r.left + m) stage.scrollLeft -= sp; else if (e.clientX > r.right - m) stage.scrollLeft += sp;
+    if (e.clientY < r.top + m) stage.scrollTop -= sp; else if (e.clientY > r.bottom - m) stage.scrollTop += sp;
+  }
+  board.addEventListener("click", (e) => {
+    const act = e.target.closest(".actions button");
+    const el = e.target.closest(".note");
+    const cut = e.target.closest("[data-string]");
+    if (stringFrom) {
+      if (el && el.dataset.id !== stringFrom) {
+        const a = stringFrom, b = el.dataset.id;
+        if (!state.strings.some((s) => (s.a === a && s.b === b) || (s.a === b && s.b === a))) state.strings.push({ id: uid(), a, b, why: "", ai: false });
+        cancelString(); save(); toast("Strung together. Click a string to cut it.");
+      } else if (!el) cancelString();
+      return;
+    }
+    if (act) {
+      const n = noteById(el.dataset.id);
+      const a = act.dataset.act;
+      if (a === "string") startString(n.id);
+      if (a === "kind") { n.kind = KIND_ORDER[(KIND_ORDER.indexOf(n.kind) + 1) % 3]; delete n.example; render(); save(); }
+      if (a === "edit") edit(n.id);
+      if (a === "delete") removeNote(n.id);
+      return;
+    }
+    if (cut) { cutString(cut.dataset.string); return; }
+    if (!el) select(null);
+  });
+  board.addEventListener("dblclick", (e) => {
+    const el = e.target.closest(".note");
+    if (el && !e.target.closest(".actions")) edit(el.dataset.id);
+  });
+  board.addEventListener("keydown", (e) => {
+    const el = e.target.closest(".note");
+    if (el && e.target === el && e.key === "Enter") { e.preventDefault(); edit(el.dataset.id); }
+  });
+  function edit(id) {
+    const n = noteById(id), el = noteEls.get(id);
+    if (!n || el.classList.contains("editing")) return;
+    el.classList.add("editing");
+    const t = el.querySelector(".text");
+    const ta = document.createElement("textarea");
+    ta.value = n.text; ta.setAttribute("aria-label", "Edit idea");
+    t.replaceWith(ta); ta.focus(); ta.select();
+    const done = (keep) => {
+      if (!el.classList.contains("editing")) return;
+      el.classList.remove("editing");
+      if (keep && ta.value.trim()) { n.text = ta.value.trim(); delete n.example; }
+      const nt = document.createElement("div"); nt.className = "text"; nt.textContent = n.text;
+      ta.replaceWith(nt); save(); render();
+    };
+    ta.addEventListener("blur", () => done(true));
+    ta.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); done(true); el.focus(); }
+      if (e.key === "Escape") { e.stopPropagation(); done(false); el.focus(); }
+    });
+    ta.addEventListener("pointerdown", (e) => e.stopPropagation());
+  }
+  function removeNote(id) {
+    const idx = state.notes.findIndex((n) => n.id === id);
+    if (idx < 0) return;
+    const [n] = state.notes.splice(idx, 1);
+    const strs = state.strings.filter((s) => s.a === id || s.b === id);
+    state.strings = state.strings.filter((s) => !strs.includes(s));
+    selectedId = null; render(); save();
+    toast("Note deleted.", "Undo", () => { state.notes.push(n); state.strings.push(...strs); render(); save(); });
+  }
+  function startString(id) { stringFrom = id; board.classList.add("stringing"); select(null); toast("Now tap the note to tie it to. Esc cancels."); }
+  function cancelString() { stringFrom = null; board.classList.remove("stringing"); renderStrings(); }
+  function cutString(id) {
+    const s = state.strings.find((x) => x.id === id);
+    if (!s) return;
+    state.strings = state.strings.filter((x) => x !== s); render(); save();
+    toast(s.why ? `Cut: "${s.why}"` : "String cut.", "Undo", () => { state.strings.push(s); render(); save(); });
+  }
+
+  // ---------- toast ----------
+  let toastTimer;
+  function toast(msg, actionLabel, action) {
+    $("toastMsg").textContent = msg;
+    const b = $("toastAction");
+    b.hidden = !actionLabel; b.textContent = actionLabel || "";
+    b.onclick = () => { $("toast").hidden = true; action && action(); };
+    $("toast").hidden = false;
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => { $("toast").hidden = true; }, actionLabel ? 6000 : 3000);
+  }
+
+  // ---------- AI ----------
+  // In a Claude artifact viewer we ask Claude through the page's `sample` capability (the viewer's own account).
+  // Anywhere else (GitHub Pages, a local file) we call the Messages API with the user's own key.
+  let samplePromise = inViewer ? window.claude.use("sample") : Promise.resolve(null);
+  let anthropicModule = null;
+  async function askJSON(prompt, schema) {
+    const sample = await samplePromise;
+    if (sample) return sample.json(prompt + "\n\nReply with only JSON matching this schema:\n" + JSON.stringify(schema), { modelTier: "default" });
+    if (inViewer) throw new Error("AI isn't available in this view.");
+    const key = store.get(LS_APIKEY);
+    if (!key) { openKeyDialog(); throw Object.assign(new Error("Add an API key to use the AI."), { quiet: true }); }
+    if (!anthropicModule) anthropicModule = await import("https://cdn.jsdelivr.net/npm/@anthropic-ai/sdk@0.132.0/+esm");
+    const Anthropic = anthropicModule.default || anthropicModule.Anthropic;
+    const client = new Anthropic({ apiKey: key, dangerouslyAllowBrowser: true });
+    const msg = await client.beta.messages.create({
+      model: "claude-opus-5-5",
+      max_tokens: 16000,
+      betas: ["server-side-fallback-2026-07-01"],
+      fallbacks: "default",
+      output_config: { effort: "medium", format: { type: "json_schema", schema } },
+      messages: [{ role: "user", content: prompt }],
+    });
+    if (msg.stop_reason === "refusal") throw new Error("Claude declined this request.");
+    if (msg.stop_reason === "max_tokens") throw new Error("The answer was cut off. Try again with fewer notes.");
+    const text = msg.content.filter((b) => b.type === "text").map((b) => b.text).join("");
+    return JSON.parse(text);
+  }
+  function ideasForPrompt() {
+    return state.notes.map((n) => ({ id: n.id, type: KINDS[n.kind].label, text: n.text }));
+  }
+  const KEY_TEXT = "Idea types: Repeatable = something done again and again (a habit, series, recurring event). One-and-done = a single project or action. Fragment = an incomplete piece of an idea.";
+  async function runAI(btn, fn) {
+    if (state.notes.length < 2) { toast("Pin at least two ideas first."); return; }
+    const label = btn.innerHTML;
+    btn.disabled = true; btn.innerHTML = '<span class="dot"></span>Thinking…';
+    try { await fn(); }
+    catch (e) {
+      if (e && e.quiet) return;
+      const code = e && e.code;
+      toast(code === "not_granted" ? "AI access wasn't allowed for this page." : code === "rate_limited" ? "Too many AI requests. Wait a minute and try again." : (e && e.message) || "The AI request failed.");
+      console.warn(e);
+    } finally { btn.disabled = false; btn.innerHTML = label; }
+  }
+  $("btnPrioritize").addEventListener("click", (e) => runAI(e.currentTarget, async () => {
+    const schema = {
+      type: "object", additionalProperties: false, required: ["ranking"],
+      properties: { ranking: { type: "array", items: { type: "object", additionalProperties: false, required: ["id", "rank", "why"],
+        properties: { id: { type: "string" }, rank: { type: "integer" }, why: { type: "string" } } } } },
+    };
+    const prompt = `You are helping someone with too many ideas decide what to act on next. ${KEY_TEXT}
+Rank every idea below from 1 (do this next) to N. Weigh: how much it seems to excite them, how cheap it is to start this week, and payoff. Repeatable ideas compound, so favour them when the effort is similar. Fragments rank lower unless they clearly complete another idea. Give each a reason of at most 14 words, addressed to them ("you").
+Ideas (JSON): ${JSON.stringify(ideasForPrompt())}`;
+    const out = await askJSON(prompt, schema);
+    const ids = new Set(state.notes.map((n) => n.id));
+    const ranks = {};
+    (out.ranking || []).filter((r) => ids.has(r.id)).sort((a, b) => a.rank - b.rank).forEach((r, i) => { ranks[r.id] = { rank: i + 1, why: r.why }; });
+    state.ai = { ...(state.ai || {}), ranks, rankedAt: Date.now() };
+    render(); save(); openPanel();
+  }));
+  $("btnConnect").addEventListener("click", (e) => runAI(e.currentTarget, async () => {
+    const schema = {
+      type: "object", additionalProperties: false, required: ["links", "themes"],
+      properties: {
+        links: { type: "array", items: { type: "object", additionalProperties: false, required: ["a", "b", "why"],
+          properties: { a: { type: "string" }, b: { type: "string" }, why: { type: "string" } } } },
+        themes: { type: "array", items: { type: "object", additionalProperties: false, required: ["name", "ids", "insight"],
+          properties: { name: { type: "string" }, ids: { type: "array", items: { type: "string" } }, insight: { type: "string" } } } },
+      },
+    };
+    const prompt = `Look at this wall of idea notes like a detective with red string. ${KEY_TEXT}
+Find the real, non-obvious connections: ideas that could merge, where a fragment completes another idea, where one idea enables another, or a hidden pattern. Return up to ${Math.min(12, state.notes.length)} links between pairs of ids, each with a "why" label of at most 6 words. Also return 1-4 themes that group several ideas, each with a short name and a one-sentence insight about what the cluster says about them. Skip weak or generic links; fewer, sharper strings are better.
+Ideas (JSON): ${JSON.stringify(ideasForPrompt())}`;
+    const out = await askJSON(prompt, schema);
+    const ids = new Set(state.notes.map((n) => n.id));
+    state.strings = state.strings.filter((s) => !s.ai);
+    for (const l of out.links || []) {
+      if (ids.has(l.a) && ids.has(l.b) && l.a !== l.b) state.strings.push({ id: uid(), a: l.a, b: l.b, why: l.why, ai: true });
+    }
+    const themes = (out.themes || []).map((t) => ({ ...t, ids: (t.ids || []).filter((id) => ids.has(id)) })).filter((t) => t.ids.length);
+    state.ai = { ...(state.ai || {}), themes, connectedAt: Date.now() };
+    render(); save(); openPanel();
+    toast(`${state.strings.filter((s) => s.ai).length} strings pinned. Dashed ones came from the AI.`);
+  }));
+
+  // ---------- case file panel ----------
+  function openPanel() { $("panel").hidden = false; renderPanel(); }
+  function renderPanel() {
+    const body = $("panelBody");
+    const ai = state.ai || {};
+    const ranked = Object.entries(ai.ranks || {}).map(([id, r]) => ({ n: noteById(id), ...r })).filter((r) => r.n).sort((a, b) => a.rank - b.rank);
+    const item = (n, num, why) => `<li><button type="button" data-goto="${n.id}"><span class="num">${num}</span><span><span class="idea">${esc(n.text)}</span>${why ? `<span class="why">${esc(why)}</span>` : ""}</span></button></li>`;
+    let html = `<section><h3>Priority</h3>${ranked.length ? `<ol>${ranked.map((r) => item(r.n, r.rank, r.why)).join("")}</ol>` : `<p class="empty">Press Prioritize to get a ranked to-do list from your wall.</p>`}</section>`;
+    const themes = ai.themes || [];
+    html += `<section><h3>Patterns</h3>${themes.length ? themes.map((t) => `<div class="theme"><b>${esc(t.name)}</b>${esc(t.insight)}<ul style="margin-top:8px">${t.ids.map(noteById).filter(Boolean).map((n) => item(n, "·", "")).join("")}</ul></div>`).join("") : `<p class="empty">Press Connect the dots to find links and patterns between ideas.</p>`}</section>`;
+    const strs = state.strings.filter((s) => s.why);
+    if (strs.length) html += `<section><h3>Strings</h3><ul>${strs.map((s) => { const a = noteById(s.a), b = noteById(s.b); return a && b ? `<li><button type="button" data-goto="${a.id}" data-goto2="${b.id}"><span class="num">↔</span><span><span class="why" style="margin:0 0 3px;font-weight:600">${esc(s.why)}</span><span class="idea">${esc(a.text)}</span><span class="why">${esc(b.text)}</span></span></button></li>` : ""; }).join("")}</ul></section>`;
+    body.innerHTML = html;
+  }
+  $("panelBody").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-goto]");
+    if (!b) return;
+    [b.dataset.goto, b.dataset.goto2].filter(Boolean).forEach((id, i) => { if (i === 0) goTo(id); flash(id); });
+    if (window.innerWidth < 720) $("panel").hidden = true;
+  });
+  function goTo(id) {
+    const n = noteById(id); if (!n) return;
+    stage.scrollTo({ left: (n.x + NOTE_W / 2) * scale - stage.clientWidth / 2, top: (n.y + NOTE_H / 2) * scale - stage.clientHeight / 2, behavior: "smooth" });
+  }
+  function flash(id) { const el = noteEls.get(id); if (!el) return; el.classList.remove("flash"); void el.offsetWidth; el.classList.add("flash"); }
+  $("btnPanel").addEventListener("click", () => { $("panel").hidden ? openPanel() : ($("panel").hidden = true); });
+  $("btnPanelClose").addEventListener("click", () => { $("panel").hidden = true; });
+
+  // ---------- toolbar / menu ----------
+  $("btnZoomIn").addEventListener("click", () => zoom(1.15));
+  $("btnZoomOut").addEventListener("click", () => zoom(1 / 1.15));
+  stage.addEventListener("wheel", (e) => { if (e.ctrlKey || e.metaKey) { e.preventDefault(); zoom(e.deltaY < 0 ? 1.08 : 1 / 1.08); } }, { passive: false });
+  $("btnClearExamples").addEventListener("click", () => {
+    const keep = new Set(state.notes.filter((n) => !n.example).map((n) => n.id));
+    state.notes = state.notes.filter((n) => keep.has(n.id));
+    state.strings = state.strings.filter((s) => keep.has(s.a) && keep.has(s.b));
+    if (state.ai && state.ai.ranks) for (const id of Object.keys(state.ai.ranks)) if (!keep.has(id)) delete state.ai.ranks[id];
+    render(); save(); input.focus();
+  });
+  $("btnMore").addEventListener("click", () => $("moreDialog").showModal());
+  if (inViewer) { $("btnExport").hidden = true; $("btnKey").hidden = true; }
+  $("btnExport").addEventListener("click", () => {
+    const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob); a.download = `idea-corkboard-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  });
+  $("btnImport").addEventListener("click", () => $("importFile").click());
+  $("importFile").addEventListener("change", async (e) => {
+    const f = e.target.files[0]; if (!f) return;
+    try {
+      const s = normalize(JSON.parse(await f.text()));
+      if (!s) throw new Error();
+      state = s; topZ = Math.max(1, ...state.notes.map((n) => n.z || 1)); render(); save();
+      $("moreDialog").close(); toast(`Imported ${state.notes.length} notes.`);
+    } catch { toast("That file isn't an Idea Corkboard export."); }
+    e.target.value = "";
+  });
+  $("btnTidy").addEventListener("click", () => {
+    const cols = { repeat: 0, once: 0, fragment: 0 };
+    const ranks = (state.ai && state.ai.ranks) || {};
+    const sorted = [...state.notes].sort((a, b) => ((ranks[a.id] || {}).rank || 999) - ((ranks[b.id] || {}).rank || 999) || a.created - b.created);
+    for (const n of sorted) {
+      const ci = KIND_ORDER.indexOf(n.kind), i = cols[n.kind]++;
+      n.x = 80 + ci * 3 * (NOTE_W + 30) + (i % 3) * (NOTE_W + 20);
+      n.y = 120 + Math.floor(i / 3) * (NOTE_H + 40);
+    }
+    render(); save(); $("moreDialog").close(); stage.scrollTo({ left: 0, top: 0, behavior: "smooth" });
+  });
+  $("btnClearAI").addEventListener("click", () => {
+    state.strings = state.strings.filter((s) => !s.ai); state.ai = null; render(); save(); $("moreDialog").close();
+  });
+  function openKeyDialog() { $("keyInput").value = ""; $("keyForget").hidden = !store.get(LS_APIKEY); $("keyDialog").showModal(); }
+  $("btnKey").addEventListener("click", () => { $("moreDialog").close(); openKeyDialog(); });
+  $("keyDialog").addEventListener("close", () => {
+    const v = $("keyDialog").returnValue;
+    if (v === "save" && $("keyInput").value.trim()) { store.set(LS_APIKEY, $("keyInput").value.trim()); toast("Key saved. Try Prioritize or Connect the dots."); }
+    if (v === "forget") { store.del(LS_APIKEY); toast("Key removed from this browser."); }
+  });
+  if (inViewer) samplePromise.then((s) => { if (!s) { $("btnPrioritize").hidden = true; $("btnConnect").hidden = true; } });
+
+  // ---------- boot ----------
+  applyScale(false);
+  render();
+  const first = state.notes.reduce((m, n) => ({ x: Math.min(m.x, n.x), y: Math.min(m.y, n.y) }), { x: W, y: H });
+  stage.scrollLeft = Math.max(0, (first.x - 220) * scale); stage.scrollTop = Math.max(0, (first.y - 150) * scale);
+  autosize();
+  connectDb();
+  window.addEventListener("resize", () => renderStrings());
+})();
+</script>
+</body>
+</html>
