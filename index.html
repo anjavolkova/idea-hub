@@ -108,6 +108,17 @@ svg.strings { position: absolute; inset: 0; width: 100%; height: 100%; overflow:
 .note.dragging { cursor: grabbing; transform: rotate(0deg) scale(1.05); box-shadow: 0 18px 28px -8px rgba(0,0,0,.55); }
 .note.selected { outline: 3px solid var(--focus); outline-offset: 3px; }
 .note.flash { animation: flash 1.2s ease 2; }
+.note .stamp {
+  position: absolute; left: 50%; top: 54%; transform: translate(-50%, -50%) rotate(-14deg); pointer-events: none;
+  padding: 4px 10px 3px; border: 3px double var(--yarn); border-radius: 4px; color: var(--yarn);
+  font: 800 26px/1 var(--font-ui); letter-spacing: .12em; text-align: center; text-transform: uppercase; white-space: nowrap; opacity: .82; mix-blend-mode: multiply;
+}
+.note .stamp small { display: block; margin-top: 2px; font-size: 9.5px; letter-spacing: .08em; }
+.note.done .text { opacity: .55; }
+.note .stamp.thunk { animation: thunk .35s cubic-bezier(.3,1.6,.5,1); }
+@keyframes thunk { from { transform: translate(-50%, -50%) rotate(-14deg) scale(2.2); opacity: 0; } }
+.actions button[aria-pressed="true"] { background: var(--note-repeat); }
+.confetti { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 50; }
 .note.dropped { animation: drop .35s cubic-bezier(.2,1.4,.4,1); }
 @keyframes flash { 50% { box-shadow: 0 0 0 8px var(--yarn), 0 8px 14px -6px rgba(0,0,0,.45); } }
 @keyframes drop { from { transform: translateY(-40px) rotate(-8deg) scale(1.15); opacity: 0; } }
@@ -268,7 +279,7 @@ dialog .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14
   .toast { bottom: 24px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .note, .note.dropped, .note.flash { animation: none; transition: none; }
+  .note, .note.dropped, .note.flash, .note .stamp.thunk { animation: none; transition: none; }
 }
 </style>
 </head>
@@ -291,6 +302,7 @@ dialog .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14
     <div><i style="background:var(--note-repeat)"></i>Repeatable <span class="count" id="cRepeat">0</span></div>
     <div><i style="background:var(--note-once)"></i>One-and-done <span class="count" id="cOnce">0</span></div>
     <div><i style="background:var(--note-fragment)"></i>Fragment <span class="count" id="cFragment">0</span></div>
+    <div><i style="background:transparent;border:2px double var(--yarn)"></i>Finished <span class="count" id="cDone">0</span></div>
   </div>
 
   <div class="examples" id="examplesBar" hidden>
@@ -315,7 +327,7 @@ dialog .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14
         <button type="submit" class="kindbtn" data-kind="fragment" aria-pressed="true"><b>Fragment</b><span>half an idea</span><kbd>Alt+3</kbd></button>
       </div>
     </form>
-    <p class="hint">Enter posts with the outlined color. Drag notes to move them. Tap a note for string, color and delete. Double-click to edit. Press N to jump back here.</p>
+    <p class="hint">Enter posts with the outlined color. Drag notes to move them. Tap a note to tie a string, mark it finished, recolor or delete it. Double-click to edit. Press N to jump back here.</p>
   </div>
 
   <aside class="panel" id="panel" hidden aria-label="Case file">
@@ -503,6 +515,7 @@ dialog .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14
     string: '<svg viewBox="0 0 24 24"><circle cx="5" cy="6" r="2.5"/><circle cx="19" cy="18" r="2.5"/><path d="M7 7c6 2 4 8 10 10"/></svg>',
     edit: '<svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>',
     trash: '<svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>',
+    done: '<svg viewBox="0 0 24 24"><path d="M4 12.5l5 5L20 6.5"/></svg>',
   };
   function noteEl(n) {
     let el = noteEls.get(n.id);
@@ -512,6 +525,7 @@ dialog .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14
       el.innerHTML = `<span class="pin"></span><div class="text"></div><span class="kindtag"></span>
         <div class="actions">
           <button type="button" data-act="string" title="Tie a string to another note" aria-label="Tie a string">${ICON.string}</button>
+          <button type="button" data-act="done" title="Mark as finished" aria-label="Mark as finished" aria-pressed="false">${ICON.done}</button>
           <button type="button" data-act="kind" title="Change color" aria-label="Change color"><span class="swatch"></span></button>
           <button type="button" data-act="edit" title="Edit" aria-label="Edit">${ICON.edit}</button>
           <button type="button" data-act="delete" title="Delete" aria-label="Delete">${ICON.trash}</button>
@@ -520,7 +534,7 @@ dialog .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14
       noteEls.set(n.id, el);
     }
     el.dataset.kind = n.kind;
-    el.style.left = n.x + "px"; el.style.top = n.y + "px"; el.style.zIndex = n.z || 1;
+    el.style.left = n.x + "px"; el.style.top = n.y + "px"; el.style.zIndex = n.id === selectedId ? topZ + 2 : n.z || 1; // a tapped note sits on top so its buttons aren't covered
     el.style.setProperty("--rot", (n.rot || 0) + "deg");
     const t = el.querySelector(".text");
     if (!el.classList.contains("editing") && t.textContent !== n.text) t.textContent = n.text;
@@ -534,7 +548,16 @@ dialog .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14
       if (!badge) { badge = document.createElement("span"); badge.className = "rank"; el.appendChild(badge); }
       badge.textContent = rank.rank; badge.title = rank.why || "";
     } else if (badge) badge.remove();
-    el.setAttribute("aria-label", `${KINDS[n.kind].label} idea: ${n.text}`);
+    el.classList.toggle("done", !!n.done);
+    let stamp = el.querySelector(".stamp");
+    if (n.done) {
+      if (!stamp) { stamp = document.createElement("span"); stamp.className = "stamp"; el.insertBefore(stamp, el.querySelector(".actions")); }
+      stamp.innerHTML = `Done<small>${new Date(n.done).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}</small>`;
+    } else if (stamp) stamp.remove();
+    const doneBtn = el.querySelector('[data-act="done"]');
+    doneBtn.setAttribute("aria-pressed", String(!!n.done));
+    doneBtn.title = doneBtn.ariaLabel = n.done ? "Mark as not finished" : "Mark as finished";
+    el.setAttribute("aria-label", `${n.done ? "Finished " : ""}${KINDS[n.kind].label} idea: ${n.text}`);
     return el;
   }
   function curve(a, b) {
@@ -569,6 +592,7 @@ dialog .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14
     state.notes.forEach(noteEl);
     renderStrings();
     const count = (k) => state.notes.filter((n) => n.kind === k).length;
+    $("cDone").textContent = state.notes.filter((n) => n.done).length;
     $("cRepeat").textContent = count("repeat"); $("cOnce").textContent = count("once"); $("cFragment").textContent = count("fragment");
     renderNotice();
     document.querySelectorAll(".kindbtn").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.kind === kind)));
@@ -579,7 +603,7 @@ dialog .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14
   function freeSpot() {
     const cx = (stage.scrollLeft + stage.clientWidth / 2) / scale - NOTE_W / 2;
     const cy = (stage.scrollTop + stage.clientHeight / 2) / scale - NOTE_H / 2;
-    const clash = (x, y) => state.notes.some((n) => Math.abs(n.x - x) < NOTE_W * 0.7 && Math.abs(n.y - y) < NOTE_H * 0.7);
+    const clash = (x, y) => state.notes.some((n) => Math.abs(n.x - x) < NOTE_W * 0.95 && Math.abs(n.y - y) < NOTE_H * 0.95);
     for (let ring = 0; ring < 8; ring++) {
       for (let i = 0; i < 8; i++) {
         const ang = (i / 8) * Math.PI * 2 + ring, r = ring * 120;
@@ -680,6 +704,7 @@ dialog .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14
       const n = noteById(el.dataset.id);
       const a = act.dataset.act;
       if (a === "string") startString(n.id);
+      if (a === "done") toggleDone(n);
       if (a === "kind") { n.kind = KIND_ORDER[(KIND_ORDER.indexOf(n.kind) + 1) % 3]; delete n.example; render(); save(); }
       if (a === "edit") edit(n.id);
       if (a === "delete") removeNote(n.id);
@@ -738,6 +763,53 @@ dialog .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14
 
   // ---------- toast ----------
   let toastTimer;
+  // ---------- finishing an idea ----------
+  const CHEERS = ["Finished! Look at you go.", "Done and dusted.", "One less tab open in your brain.", "Idea, meet reality. Nice work.", "You actually did it!"];
+  function toggleDone(n) {
+    if (n.done) {
+      delete n.done; render(); save();
+      return;
+    }
+    n.done = Date.now(); delete n.example;
+    render(); save();
+    const el = noteEls.get(n.id);
+    el.querySelector(".stamp").classList.add("thunk");
+    confetti(el.getBoundingClientRect());
+    toast(CHEERS[Math.floor(Math.random() * CHEERS.length)], "Undo", () => { delete n.done; render(); save(); });
+  }
+  function confetti(rect) {
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const css = getComputedStyle(document.documentElement);
+    const colors = ["--note-repeat", "--note-once", "--note-fragment", "--yarn"].map((v) => css.getPropertyValue(v).trim()).concat(["#ffd166", "#5ec8f2", "#ffffff"]);
+    const canvas = document.createElement("canvas");
+    canvas.className = "confetti";
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = innerWidth * dpr; canvas.height = innerHeight * dpr;
+    document.body.appendChild(canvas);
+    const ctx = canvas.getContext("2d");
+    ctx.scale(dpr, dpr);
+    const ox = rect.left + rect.width / 2, oy = rect.top + rect.height / 3;
+    const bits = Array.from({ length: 160 }, () => {
+      const ang = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI * 1.3, sp = 6 + Math.random() * 11;
+      return { x: ox, y: oy, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp, w: 6 + Math.random() * 7, h: 4 + Math.random() * 6,
+        r: Math.random() * Math.PI, vr: (Math.random() - 0.5) * 0.4, c: colors[Math.floor(Math.random() * colors.length)], round: Math.random() < 0.25 };
+    });
+    const start = performance.now();
+    (function frame(t) {
+      const age = t - start;
+      ctx.clearRect(0, 0, innerWidth, innerHeight);
+      ctx.globalAlpha = Math.max(0, Math.min(1, (3200 - age) / 800));
+      for (const b of bits) {
+        b.vy += 0.32; b.vx *= 0.985; b.vy *= 0.985; b.x += b.vx; b.y += b.vy; b.r += b.vr;
+        ctx.save(); ctx.translate(b.x, b.y); ctx.rotate(b.r); ctx.fillStyle = b.c;
+        if (b.round) { ctx.beginPath(); ctx.arc(0, 0, b.h / 2, 0, Math.PI * 2); ctx.fill(); }
+        else ctx.fillRect(-b.w / 2, -b.h / 2 * Math.abs(Math.cos(b.r * 2)), b.w, b.h * Math.abs(Math.cos(b.r * 2)) + 1);
+        ctx.restore();
+      }
+      if (age < 3200) requestAnimationFrame(frame); else canvas.remove();
+    })(start);
+  }
+
   function toast(msg, actionLabel, action) {
     $("toastMsg").textContent = msg;
     const b = $("toastAction");
