@@ -8,6 +8,10 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;800&family=Gochi+Hand&display=swap">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<meta name="theme-color" content="#5b3b22">
 <style>
 /* Layout: a full-screen pannable cork wall, a floating label-maker toolbar on top,
    and a quick-add dock pinned to the bottom edge. */
@@ -342,6 +346,7 @@ dialog .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14
         <button class="tbtn" type="button" id="btnTidy">Tidy into columns</button>
         <button class="tbtn" type="button" id="btnClearAI">Remove AI strings &amp; ranks</button>
         <button class="tbtn" type="button" id="btnKey">AI key…</button>
+        <button class="tbtn ai" type="button" id="btnInstall" hidden>Install as app</button>
       </div>
       <input type="file" id="importFile" accept="application/json,.json" hidden>
       <div class="row"><button class="tbtn" value="close" type="submit">Done</button></div>
@@ -867,6 +872,21 @@ Ideas (JSON): ${JSON.stringify(ideasForPrompt())}`;
     if (v === "forget") { store.del(LS_APIKEY); toast("Key removed from this browser."); }
   });
   if (inViewer) samplePromise.then((s) => { if (!s) { $("btnPrioritize").hidden = true; $("btnConnect").hidden = true; } });
+
+  // ---------- install as an app ----------
+  // Chrome and Edge offer an install prompt; Safari uses File > Add to Dock instead.
+  let installPrompt = null;
+  window.addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); installPrompt = e; $("btnInstall").hidden = false; });
+  $("btnInstall").addEventListener("click", async () => {
+    if (!installPrompt) return;
+    installPrompt.prompt();
+    await installPrompt.userChoice.catch(() => {});
+    installPrompt = null; $("btnInstall").hidden = true; $("moreDialog").close();
+  });
+  window.addEventListener("appinstalled", () => toast("Installed. Open Idea Corkboard from your Dock or Start menu."));
+  if (!inViewer && "serviceWorker" in navigator && location.protocol.startsWith("http")) {
+    navigator.serviceWorker.register("sw.js").catch((e) => console.warn("offline support unavailable", e));
+  }
 
   // ---------- boot ----------
   applyScale(false);

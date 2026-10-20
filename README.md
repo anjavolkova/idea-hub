@@ -28,4 +28,13 @@ Opened as a Claude artifact, the AI runs on the viewer's own Claude account. Ope
 
 The board saves in the browser's local storage. Inside a Claude artifact it also saves to the viewer's private storage on their Claude account. Use Export JSON for backups.
 
-It's a single `index.html` with no build step. Open it in a browser or serve the folder with any static host.
+**Install it as an app**
+
+Once the page is hosted (GitHub Pages works), open it and install it:
+
+- **Chrome or Edge (Mac, Windows, Linux):** click the install icon at the right end of the address bar, or `⋯` menu → Install as app.
+- **Safari (macOS Sonoma or later):** File → Add to Dock.
+
+It opens in its own window with its own icon and works offline. The AI buttons still need internet.
+
+It's a single `index.html` with no build step, plus `manifest.webmanifest`, `sw.js` (offline cache) and `icons/`.
