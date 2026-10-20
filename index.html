@@ -127,6 +127,11 @@ svg.strings { position: absolute; inset: 0; width: 100%; height: 100%; overflow:
   background: radial-gradient(circle at 35% 35%, #ff8a8a, #c8102e 55%, #6d0010);
   box-shadow: 1px 3px 3px rgba(0,0,0,.45);
 }
+.note .pin { cursor: crosshair; transition: transform .12s; }
+.note .pin::before { content: ""; position: absolute; inset: -11px; border-radius: 50%; } /* bigger target than the pin itself */
+.note .pin:hover, .board.pulling .pin { transform: scale(1.25); }
+.note.string-target { outline: 3px dashed var(--yarn); outline-offset: 4px; }
+.yarn-end { fill: var(--yarn); filter: drop-shadow(0 2px 1.5px rgba(0,0,0,.45)); }
 .note .text { white-space: pre-wrap; min-height: 1.2em; }
 .note textarea {
   width: 100%; min-height: 96px; border: 0; padding: 0; resize: none; background: transparent;
@@ -327,7 +332,7 @@ dialog .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14
         <button type="submit" class="kindbtn" data-kind="fragment" aria-pressed="true"><b>Fragment</b><span>half an idea</span><kbd>Alt+3</kbd></button>
       </div>
     </form>
-    <p class="hint">Enter posts with the outlined color. Drag notes to move them. Tap a note to tie a string, mark it finished, recolor or delete it. Double-click to edit. Press N to jump back here.</p>
+    <p class="hint">Enter posts with the outlined color. Drag a note to move it, or drag its pin onto another note to tie a string. Tap a note for more. Press N to type.</p>
   </div>
 
   <aside class="panel" id="panel" hidden aria-label="Case file">
@@ -581,7 +586,7 @@ dialog .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14
         board.appendChild(tag);
       }
     }
-    if (live) html += `<path class="yarn live" d="${curve(live.a, live.b).d}"/>`;
+    if (live) html += `<path class="yarn live" d="${curve(live.a, live.b).d}"/><circle class="yarn-end" cx="${live.b.x}" cy="${live.b.y}" r="6"/>`;
     svg.innerHTML = html;
     svg.style.zIndex = topZ + 1;
   }
@@ -650,16 +655,46 @@ dialog .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14
   function select(id) { selectedId = id; state.notes.forEach(noteEl); }
   function noteById(id) { return state.notes.find((n) => n.id === id); }
   let drag = null;
+  let pull = null; // dragging a string out of a pin
+  function tie(a, b) {
+    if (!state.strings.some((s) => (s.a === a && s.b === b) || (s.a === b && s.b === a))) state.strings.push({ id: uid(), a, b, why: "", ai: false });
+    save(); renderStrings(); toast("Strung together. Click a string to cut it.");
+  }
+  function noteUnder(e) {
+    const hit = document.elementFromPoint(e.clientX, e.clientY);
+    const el = hit && hit.closest(".note");
+    return el && el.dataset.id !== pull.from ? el : null;
+  }
   board.addEventListener("pointerdown", (e) => {
     const el = e.target.closest(".note");
     if (!el || e.target.closest(".actions") || el.classList.contains("editing") || e.button > 0) return;
     const n = noteById(el.dataset.id);
     if (stringFrom) return; // handled on click
+    if (e.target.closest(".pin")) {
+      pull = { from: n.id, pid: e.pointerId, sx: e.clientX, sy: e.clientY, moved: false, target: null, pin: e.target.closest(".pin") };
+      pull.pin.setPointerCapture(e.pointerId);
+      e.preventDefault();
+      return;
+    }
     const p = toBoard(e.clientX, e.clientY);
     drag = { n, el, dx: p.x - n.x, dy: p.y - n.y, sx: e.clientX, sy: e.clientY, moved: false, pid: e.pointerId };
     el.setPointerCapture(e.pointerId);
   });
   board.addEventListener("pointermove", (e) => {
+    if (pull && e.pointerId === pull.pid) {
+      if (!pull.moved && Math.hypot(e.clientX - pull.sx, e.clientY - pull.sy) < 5) return;
+      if (!pull.moved) { pull.moved = true; board.classList.add("pulling"); select(null); }
+      const target = noteUnder(e);
+      if (target !== pull.target) {
+        if (pull.target) pull.target.classList.remove("string-target");
+        if (target) target.classList.add("string-target");
+        pull.target = target;
+      }
+      const a = noteById(pull.from);
+      renderStrings({ a: pinOf(a), b: target ? pinOf(noteById(target.dataset.id)) : toBoard(e.clientX, e.clientY) });
+      autoScroll(e);
+      return;
+    }
     if (stringFrom) {
       const a = noteById(stringFrom);
       if (a) renderStrings({ a: pinOf(a), b: toBoard(e.clientX, e.clientY) });
@@ -681,8 +716,18 @@ dialog .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14
     d.el.classList.remove("dragging");
     if (d.moved) { renderStrings(); save(); } else select(d.n.id === selectedId ? null : d.n.id);
   }
-  board.addEventListener("pointerup", endDrag);
-  board.addEventListener("pointercancel", endDrag);
+  function endPull(e) {
+    if (!pull || e.pointerId !== pull.pid) return false;
+    const p = pull; pull = null;
+    board.classList.remove("pulling");
+    if (p.target) p.target.classList.remove("string-target");
+    if (!p.moved) { select(p.from === selectedId ? null : p.from); return true; } // a plain tap on the pin selects the note
+    if (e.type === "pointerup" && p.target) tie(p.from, p.target.dataset.id);
+    else renderStrings();
+    return true;
+  }
+  board.addEventListener("pointerup", (e) => endPull(e) || endDrag(e));
+  board.addEventListener("pointercancel", (e) => endPull(e) || endDrag(e));
   function autoScroll(e) {
     const r = stage.getBoundingClientRect(), m = 40, sp = 14;
     if (e.clientX < r.left + m) stage.scrollLeft -= sp; else if (e.clientX > r.right - m) stage.scrollLeft += sp;
@@ -695,8 +740,7 @@ dialog .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14
     if (stringFrom) {
       if (el && el.dataset.id !== stringFrom) {
         const a = stringFrom, b = el.dataset.id;
-        if (!state.strings.some((s) => (s.a === a && s.b === b) || (s.a === b && s.b === a))) state.strings.push({ id: uid(), a, b, why: "", ai: false });
-        cancelString(); save(); toast("Strung together. Click a string to cut it.");
+        cancelString(); tie(a, b);
       } else if (!el) cancelString();
       return;
     }
