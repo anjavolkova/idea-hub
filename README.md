@@ -17,6 +17,10 @@ A cork wall for all the ideas. Type an idea, tap a color, and it gets pinned to 
 - `N` jumps back to the input. `Ctrl`/`Cmd` + scroll, or the `+`/`−` buttons, zoom the wall.
 - The `⋯` menu exports and imports the board as JSON and can tidy notes into columns by color.
 
+**Sharing your board on the website**
+
+`⋯` → Share on my website… downloads `board.json`, a copy of your board with your name on it. Upload it to this repo (Add file → Upload files) to publish it. Visitors who open the app see that board first and can play with it, but their changes aren't saved and never touch yours. Start my own board gives them an empty board of their own in their browser. Without a `board.json`, the app opens with example notes.
+
 **AI**
 
 - **Prioritize** ranks every note and explains each rank in one line.

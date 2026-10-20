@@ -1,7 +1,7 @@
 // Offline support for the installed app.
-// The page itself is network-first so updates show up on the next launch;
+// The page itself and board.json are network-first so updates show up on the next launch;
 // fonts, icons and the AI library are cache-first.
-const CACHE = "idea-corkboard-v1";
+const CACHE = "idea-corkboard-v2";
 const SHELL = ["./", "./index.html", "./manifest.webmanifest", "./icons/icon-192.png", "./icons/icon-512.png", "./icons/icon.svg"];
 
 self.addEventListener("install", (e) => {
@@ -27,6 +27,16 @@ self.addEventListener("fetch", (e) => {
       fetch(req)
         .then((res) => { const copy = res.clone(); caches.open(CACHE).then((c) => c.put("./index.html", copy)); return res; })
         .catch(() => caches.match("./index.html"))
+    );
+    return;
+  }
+
+  // The shared board changes whenever it's republished, so always try the network first.
+  if (url.origin === location.origin && url.pathname.endsWith("/board.json")) {
+    e.respondWith(
+      fetch(req)
+        .then((res) => { if (res.ok) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put("./board.json", copy)); } return res; })
+        .catch(() => caches.match("./board.json").then((hit) => hit || new Response("", { status: 404 })))
     );
     return;
   }

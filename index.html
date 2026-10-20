@@ -291,8 +291,8 @@ dialog .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14
   </div>
 
   <div class="examples" id="examplesBar" hidden>
-    These are example notes.
-    <button type="button" id="btnClearExamples">Clear them</button>
+    <span id="noticeMsg">These are example notes.</span>
+    <button type="button" id="noticeBtn">Clear them</button>
   </div>
 
   <div class="stage" id="stage">
@@ -336,6 +336,24 @@ dialog .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14
     </form>
   </dialog>
 
+  <dialog id="publishDialog">
+    <form method="dialog">
+      <h2>Share on your website</h2>
+      <p>This saves a copy of your board as <b>board.json</b>. Visitors who open the app see that copy first and can start their own board from it. Their changes never touch yours.</p>
+      <label for="ownerInput" style="display:block;margin-bottom:6px;font-weight:600">Name to show visitors</label>
+      <input id="ownerInput" type="text" placeholder="Your name" autocomplete="name">
+      <ol style="margin:14px 0 0;padding-left:18px;color:var(--muted);display:flex;flex-direction:column;gap:4px">
+        <li>Click Download board.json.</li>
+        <li>On GitHub, open the <a href="https://github.com/anjavolkova/idea-hub" target="_blank" rel="noopener">idea-hub repo</a>, choose Add file → Upload files, and drop it in. It replaces the old one.</li>
+        <li>Commit. The website shows the new board in about a minute.</li>
+      </ol>
+      <div class="row">
+        <button class="tbtn" value="cancel" type="submit">Cancel</button>
+        <button class="tbtn ai" value="download" type="submit">Download board.json</button>
+      </div>
+    </form>
+  </dialog>
+
   <dialog id="moreDialog">
     <form method="dialog">
       <h2>Board</h2>
@@ -347,6 +365,8 @@ dialog .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14
         <button class="tbtn" type="button" id="btnClearAI">Remove AI strings &amp; ranks</button>
         <button class="tbtn" type="button" id="btnKey">AI key…</button>
         <button class="tbtn ai" type="button" id="btnInstall" hidden>Install as app</button>
+        <button class="tbtn" type="button" id="btnShowcase" hidden>See the shared board</button>
+        <button class="tbtn ai" type="button" id="btnPublish">Share on my website…</button>
       </div>
       <input type="file" id="importFile" accept="application/json,.json" hidden>
       <div class="row"><button class="tbtn" value="close" type="submit">Done</button></div>
@@ -401,7 +421,12 @@ dialog .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14
     s.updatedAt = s.updatedAt || 0;
     return s;
   }
-  let state = (() => { try { return normalize(JSON.parse(store.get(LS_KEY))); } catch { return null; } })() || exampleState();
+  const emptyState = () => ({ notes: [], strings: [], ai: null, updatedAt: 0 });
+  const loadOwn = () => { try { return normalize(JSON.parse(store.get(LS_KEY))); } catch { return null; } };
+  // "own": the visitor's board, saved in their browser.
+  // "showcase": the board published as board.json on the website. Visitors can play with it, but nothing is saved.
+  let mode = "own", showcase = null;
+  let state = loadOwn() || emptyState();
   const prefs = (() => { try { return JSON.parse(store.get(LS_PREFS)) || {}; } catch { return {}; } })();
   let kind = KINDS[prefs.kind] ? prefs.kind : "fragment";
   let scale = prefs.scale || (window.innerWidth < 720 ? 0.8 : 1);
@@ -412,6 +437,7 @@ dialog .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14
   // ---------- persistence ----------
   let dbDoc = null, saveTimer = null;
   function save() {
+    if (mode === "showcase") { $("saveState").textContent = "not saved"; return; }
     state.updatedAt = Date.now();
     store.set(LS_KEY, JSON.stringify(state));
     $("saveState").textContent = "saving…";
@@ -531,7 +557,7 @@ dialog .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14
     renderStrings();
     const count = (k) => state.notes.filter((n) => n.kind === k).length;
     $("cRepeat").textContent = count("repeat"); $("cOnce").textContent = count("once"); $("cFragment").textContent = count("fragment");
-    $("examplesBar").hidden = !state.notes.some((n) => n.example);
+    renderNotice();
     document.querySelectorAll(".kindbtn").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.kind === kind)));
     if (!$("panel").hidden) renderPanel();
   }
@@ -746,6 +772,7 @@ dialog .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14
     try { await fn(); }
     catch (e) {
       if (e && e.quiet) return;
+      if (e && e.status === 401) { toast("That API key didn't work. Check it and paste it again."); openKeyDialog(); return; }
       const code = e && e.code;
       toast(code === "not_granted" ? "AI access wasn't allowed for this page." : code === "rate_limited" ? "Too many AI requests. Wait a minute and try again." : (e && e.message) || "The AI request failed.");
       console.warn(e);
@@ -824,28 +851,88 @@ Ideas (JSON): ${JSON.stringify(ideasForPrompt())}`;
   $("btnZoomIn").addEventListener("click", () => zoom(1.15));
   $("btnZoomOut").addEventListener("click", () => zoom(1 / 1.15));
   stage.addEventListener("wheel", (e) => { if (e.ctrlKey || e.metaKey) { e.preventDefault(); zoom(e.deltaY < 0 ? 1.08 : 1 / 1.08); } }, { passive: false });
-  $("btnClearExamples").addEventListener("click", () => {
+  // ---------- shared board (board.json) ----------
+  function renderNotice() {
+    let msg = "", btn = "";
+    if (mode === "showcase") {
+      const who = showcase.owner ? `${showcase.owner}'s` : "A shared";
+      const when = showcase.publishedAt ? ` from ${new Date(showcase.publishedAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}` : "";
+      msg = `${who} idea board${when}. Move things around. Changes here aren't saved.`;
+      btn = loadOwn() ? "Back to my board" : "Start my own board";
+    } else if (state.notes.some((n) => n.example)) {
+      msg = "These are example notes."; btn = "Clear them";
+    }
+    $("examplesBar").hidden = !msg;
+    $("noticeMsg").textContent = msg; $("noticeBtn").textContent = btn;
+    $("btnShowcase").hidden = !(showcase && mode === "own");
+    $("btnPublish").hidden = inViewer || mode === "showcase";
+  }
+  function useState(s, m) {
+    mode = m; state = s; selectedId = null; cancelString();
+    topZ = Math.max(1, ...state.notes.map((n) => n.z || 1));
+    render(); scrollToNotes();
+    $("saveState").textContent = m === "showcase" ? "view only" : "saved";
+  }
+  function showShowcase() {
+    useState(normalize(JSON.parse(JSON.stringify(showcase))), "showcase");
+  }
+  $("noticeBtn").addEventListener("click", () => {
+    if (mode === "showcase") {
+      const own = loadOwn();
+      useState(own || emptyState(), "own");
+      if (!own) { save(); toast("Fresh board. Type your first idea below."); }
+      input.focus();
+      return;
+    }
     const keep = new Set(state.notes.filter((n) => !n.example).map((n) => n.id));
     state.notes = state.notes.filter((n) => keep.has(n.id));
     state.strings = state.strings.filter((s) => keep.has(s.a) && keep.has(s.b));
     if (state.ai && state.ai.ranks) for (const id of Object.keys(state.ai.ranks)) if (!keep.has(id)) delete state.ai.ranks[id];
     render(); save(); input.focus();
   });
+  $("btnShowcase").addEventListener("click", () => { $("moreDialog").close(); showShowcase(); });
+  $("btnPublish").addEventListener("click", () => {
+    $("moreDialog").close();
+    $("ownerInput").value = prefs.owner || "";
+    $("publishDialog").showModal();
+  });
+  $("publishDialog").addEventListener("close", () => {
+    if ($("publishDialog").returnValue !== "download") return;
+    prefs.owner = $("ownerInput").value.trim(); store.set(LS_PREFS, JSON.stringify(prefs));
+    const snap = { owner: prefs.owner, publishedAt: Date.now(), ...JSON.parse(JSON.stringify(state)) };
+    snap.notes = snap.notes.map(({ example, ...n }) => n);
+    downloadJSON(snap, "board.json");
+    toast("Downloaded board.json. Upload it to the idea-hub repo to update the website.");
+  });
+  async function loadShowcase() {
+    if (inViewer || !location.protocol.startsWith("http")) return null;
+    try {
+      const res = await fetch("board.json", { cache: "no-cache" });
+      if (!res.ok) return null;
+      const data = await res.json();
+      const s = normalize(data);
+      if (!s) return null;
+      s.owner = typeof data.owner === "string" ? data.owner.slice(0, 60) : "";
+      s.publishedAt = data.publishedAt || 0;
+      return s;
+    } catch { return null; }
+  }
   $("btnMore").addEventListener("click", () => $("moreDialog").showModal());
   if (inViewer) { $("btnExport").hidden = true; $("btnKey").hidden = true; }
-  $("btnExport").addEventListener("click", () => {
-    const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
+  function downloadJSON(data, filename) {
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob); a.download = `idea-corkboard-${new Date().toISOString().slice(0, 10)}.json`;
+    a.href = URL.createObjectURL(blob); a.download = filename;
     document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-  });
+  }
+  $("btnExport").addEventListener("click", () => downloadJSON(state, `idea-corkboard-${new Date().toISOString().slice(0, 10)}.json`));
   $("btnImport").addEventListener("click", () => $("importFile").click());
   $("importFile").addEventListener("change", async (e) => {
     const f = e.target.files[0]; if (!f) return;
     try {
       const s = normalize(JSON.parse(await f.text()));
       if (!s) throw new Error();
-      state = s; topZ = Math.max(1, ...state.notes.map((n) => n.z || 1)); render(); save();
+      useState(s, "own"); save();
       $("moreDialog").close(); toast(`Imported ${state.notes.length} notes.`);
     } catch { toast("That file isn't an Idea Corkboard export."); }
     e.target.value = "";
@@ -889,12 +976,21 @@ Ideas (JSON): ${JSON.stringify(ideasForPrompt())}`;
   }
 
   // ---------- boot ----------
+  function scrollToNotes() {
+    const first = state.notes.reduce((m, n) => ({ x: Math.min(m.x, n.x), y: Math.min(m.y, n.y) }), { x: W, y: H });
+    if (!state.notes.length) { stage.scrollLeft = 0; stage.scrollTop = 0; return; }
+    stage.scrollLeft = Math.max(0, (first.x - 220) * scale); stage.scrollTop = Math.max(0, (first.y - 150) * scale);
+  }
   applyScale(false);
-  render();
-  const first = state.notes.reduce((m, n) => ({ x: Math.min(m.x, n.x), y: Math.min(m.y, n.y) }), { x: W, y: H });
-  stage.scrollLeft = Math.max(0, (first.x - 220) * scale); stage.scrollTop = Math.max(0, (first.y - 150) * scale);
   autosize();
-  connectDb();
+  (async () => {
+    const own = loadOwn();
+    showcase = await loadShowcase();
+    if (own) useState(own, "own");
+    else if (showcase) showShowcase();
+    else useState(exampleState(), "own");
+    connectDb();
+  })();
   window.addEventListener("resize", () => renderStrings());
 })();
 </script>
