@@ -1,29 +1,29 @@
 {
   "owner": "Anna",
-  "publishedAt": 1792526635411,
+  "publishedAt": 1792526833570,
   "notes": [
     {
       "id": "mi70agh6jl",
       "text": "day 1 of making a tour poster until I get hired to design a real one <3",
       "kind": "repeat",
-      "x": 1166,
-      "y": 263,
+      "x": 1199,
+      "y": 308,
       "rot": 1.8,
-      "z": 24,
+      "z": 31,
       "created": 1792525861281
     },
     {
       "id": "3euscablyr",
       "text": "medievalcore customisable leather journal etsy",
       "kind": "once",
-      "x": 1482,
-      "y": 396,
+      "x": 1677,
+      "y": 392,
       "rot": -3,
-      "z": 23,
+      "z": 30,
       "created": 1792526207859
     }
   ],
   "strings": [],
   "ai": null,
-  "updatedAt": 1792526526503
+  "updatedAt": 1792526810830
 }
