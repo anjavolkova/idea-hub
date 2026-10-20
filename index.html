@@ -166,6 +166,8 @@ svg.strings { position: absolute; inset: 0; width: 100%; height: 100%; overflow:
 .tbtn:hover { filter: brightness(1.05); }
 .tbtn[disabled] { opacity: .5; cursor: progress; }
 .tbtn.ai { border-color: var(--yarn); }
+.tbtn.save { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.tbtn.save.dirty::after { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--yarn); }
 .tbtn .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--yarn); }
 
 /* ---------- legend ---------- */
@@ -275,6 +277,7 @@ dialog .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14
   <div class="toolbar">
     <div class="brand">Idea Corkboard <small id="saveState">saved</small></div>
     <div class="tools">
+      <button class="tbtn save" id="btnSave" type="button" hidden>Save to website</button>
       <button class="tbtn ai" id="btnPrioritize" type="button"><span class="dot"></span>Prioritize</button>
       <button class="tbtn ai" id="btnConnect" type="button"><span class="dot"></span>Connect the dots</button>
       <button class="tbtn" id="btnPanel" type="button">Case file</button>
@@ -338,18 +341,23 @@ dialog .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14
 
   <dialog id="publishDialog">
     <form method="dialog">
-      <h2>Share on your website</h2>
-      <p>This saves a copy of your board as <b>board.json</b>. Visitors who open the app see that copy first and can start their own board from it. Their changes never touch yours.</p>
+      <h2>Save to your website</h2>
+      <p>Connect once on this laptop. After that, the Save to website button puts this board on your website, where visitors see it first and can start their own. Their changes never touch yours.</p>
       <label for="ownerInput" style="display:block;margin-bottom:6px;font-weight:600">Name to show visitors</label>
       <input id="ownerInput" type="text" placeholder="Your name" autocomplete="name">
-      <ol style="margin:14px 0 0;padding-left:18px;color:var(--muted);display:flex;flex-direction:column;gap:4px">
-        <li>Click Download board.json.</li>
-        <li>On GitHub, open the <a href="https://github.com/anjavolkova/idea-hub" target="_blank" rel="noopener">idea-hub repo</a>, choose Add file → Upload files, and drop it in. It replaces the old one.</li>
-        <li>Commit. The website shows the new board in about a minute.</li>
+      <label for="ghTokenInput" style="display:block;margin:14px 0 6px;font-weight:600">GitHub key</label>
+      <input id="ghTokenInput" type="password" placeholder="github_pat_…" autocomplete="off">
+      <ol style="margin:10px 0 0;padding-left:18px;color:var(--muted);display:flex;flex-direction:column;gap:4px;font-size:13px">
+        <li>Open <a href="https://github.com/settings/personal-access-tokens/new?name=Idea%20Corkboard&amp;contents=write&amp;expires_in=366" target="_blank" rel="noopener">GitHub's new key page</a>.</li>
+        <li>Under Repository access, pick Only select repositories, then idea-hub.</li>
+        <li>Check that Permissions shows Contents: Read and write, then click Generate token.</li>
+        <li>Copy the key and paste it above.</li>
       </ol>
+      <p style="margin-top:10px;font-size:12.5px">The key stays in this browser. It can only change files in idea-hub.</p>
       <div class="row">
+        <button class="tbtn" value="disconnect" id="btnDisconnect" type="submit">Disconnect</button>
         <button class="tbtn" value="cancel" type="submit">Cancel</button>
-        <button class="tbtn ai" value="download" type="submit">Download board.json</button>
+        <button class="tbtn save" value="connect" type="submit">Connect</button>
       </div>
     </form>
   </dialog>
@@ -366,7 +374,7 @@ dialog .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14
         <button class="tbtn" type="button" id="btnKey">AI key…</button>
         <button class="tbtn ai" type="button" id="btnInstall" hidden>Install as app</button>
         <button class="tbtn" type="button" id="btnShowcase" hidden>See the shared board</button>
-        <button class="tbtn ai" type="button" id="btnPublish">Share on my website…</button>
+        <button class="tbtn" type="button" id="btnPublish">Set up Save to website…</button>
       </div>
       <input type="file" id="importFile" accept="application/json,.json" hidden>
       <div class="row"><button class="tbtn" value="close" type="submit">Done</button></div>
@@ -384,7 +392,11 @@ dialog .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14
     fragment: { label: "Fragment", hint: "an incomplete piece of an idea" },
   };
   const KIND_ORDER = ["repeat", "once", "fragment"];
-  const LS_KEY = "idea-corkboard:v1", LS_PREFS = "idea-corkboard:prefs", LS_APIKEY = "idea-corkboard:anthropic-key";
+  const LS_KEY = "idea-corkboard:v1", LS_PREFS = "idea-corkboard:prefs", LS_APIKEY = "idea-corkboard:anthropic-key", LS_GH = "idea-corkboard:github-key";
+  // Where Save to website writes the shared board. GitHub Pages serves it next to this page.
+  const SITE_REPO = { owner: "anjavolkova", repo: "idea-hub", path: "board.json" };
+  // AI buttons are shelved for now; flip to true to bring them back.
+  const AI_ENABLED = false;
   const inViewer = !!(window.claude && typeof window.claude.use === "function");
 
   const $ = (id) => document.getElementById(id);
@@ -440,6 +452,7 @@ dialog .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14
     if (mode === "showcase") { $("saveState").textContent = "not saved"; return; }
     state.updatedAt = Date.now();
     store.set(LS_KEY, JSON.stringify(state));
+    $("btnSave").classList.add("dirty");
     $("saveState").textContent = "saving…";
     clearTimeout(saveTimer);
     saveTimer = setTimeout(async () => {
@@ -866,6 +879,9 @@ Ideas (JSON): ${JSON.stringify(ideasForPrompt())}`;
     $("noticeMsg").textContent = msg; $("noticeBtn").textContent = btn;
     $("btnShowcase").hidden = !(showcase && mode === "own");
     $("btnPublish").hidden = inViewer || mode === "showcase";
+    $("btnPublish").textContent = store.get(LS_GH) ? "Save to website settings…" : "Set up Save to website…";
+    $("btnSave").hidden = inViewer || mode === "showcase" || !store.get(LS_GH);
+    $("btnSave").classList.toggle("dirty", (state.updatedAt || 0) > (prefs.publishedAt || 0));
   }
   function useState(s, m) {
     mode = m; state = s; selectedId = null; cancelString();
@@ -894,16 +910,71 @@ Ideas (JSON): ${JSON.stringify(ideasForPrompt())}`;
   $("btnPublish").addEventListener("click", () => {
     $("moreDialog").close();
     $("ownerInput").value = prefs.owner || "";
+    $("ghTokenInput").value = "";
+    $("ghTokenInput").placeholder = store.get(LS_GH) ? "Connected. Paste a new key to replace it." : "github_pat_…";
+    $("btnDisconnect").hidden = !store.get(LS_GH);
     $("publishDialog").showModal();
   });
-  $("publishDialog").addEventListener("close", () => {
-    if ($("publishDialog").returnValue !== "download") return;
+  $("publishDialog").addEventListener("close", async () => {
+    const v = $("publishDialog").returnValue;
+    if (v === "disconnect") { store.del(LS_GH); renderNotice(); toast("Disconnected. The key is removed from this browser."); return; }
+    if (v !== "connect") return;
     prefs.owner = $("ownerInput").value.trim(); store.set(LS_PREFS, JSON.stringify(prefs));
-    const snap = { owner: prefs.owner, publishedAt: Date.now(), ...JSON.parse(JSON.stringify(state)) };
-    snap.notes = snap.notes.map(({ example, ...n }) => n);
-    downloadJSON(snap, "board.json");
-    toast("Downloaded board.json. Upload it to the idea-hub repo to update the website.");
+    const key = $("ghTokenInput").value.trim();
+    if (key) {
+      const res = await fetch(`https://api.github.com/repos/${SITE_REPO.owner}/${SITE_REPO.repo}`, { headers: ghHeaders(key) }).catch(() => null);
+      if (!res || !res.ok) { toast(res && res.status === 401 ? "GitHub didn't accept that key. Copy it again and retry." : "That key can't reach idea-hub. Check step 2 and try again."); return; }
+      store.set(LS_GH, key);
+    }
+    renderNotice();
+    if (store.get(LS_GH)) toast("Connected. Use Save to website whenever you want to update it.");
   });
+  const ghHeaders = (key) => ({ Authorization: `Bearer ${key}`, Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" });
+  function toBase64(text) {
+    const bytes = new TextEncoder().encode(text);
+    let bin = "";
+    for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    return btoa(bin);
+  }
+  async function saveToWebsite() {
+    const key = store.get(LS_GH);
+    if (!key || mode !== "own") return;
+    const btn = $("btnSave");
+    btn.disabled = true; btn.textContent = "Saving…";
+    const url = `https://api.github.com/repos/${SITE_REPO.owner}/${SITE_REPO.repo}/contents/${SITE_REPO.path}`;
+    const publishedAt = Date.now();
+    const snap = { owner: prefs.owner || "", publishedAt, ...JSON.parse(JSON.stringify(state)) };
+    snap.notes = snap.notes.map(({ example, ...n }) => n);
+    const content = toBase64(JSON.stringify(snap, null, 2) + "\n");
+    try {
+      let res;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const cur = await fetch(url, { headers: ghHeaders(key), cache: "no-store" });
+        if (!cur.ok && cur.status !== 404) { res = cur; break; }
+        const sha = cur.ok ? (await cur.json()).sha : undefined;
+        res = await fetch(url, {
+          method: "PUT", headers: { ...ghHeaders(key), "Content-Type": "application/json" },
+          body: JSON.stringify({ message: "Update idea board", content, ...(sha ? { sha } : {}) }),
+        });
+        if (res.status !== 409) break; // 409: the file changed in between; fetch the new version and retry once
+      }
+      if (res.ok) {
+        prefs.publishedAt = publishedAt; store.set(LS_PREFS, JSON.stringify(prefs));
+        toast("Saved. Your website shows it in about a minute.");
+      } else if (res.status === 401) {
+        toast("GitHub stopped accepting your key. It may have expired. Set it up again from the ⋯ menu.");
+      } else if (res.status === 403 || res.status === 404) {
+        toast("Your key can't change idea-hub. Make sure it has Contents: Read and write.");
+      } else {
+        toast(`GitHub said no (error ${res.status}). Try again in a minute.`);
+      }
+    } catch {
+      toast("Couldn't reach GitHub. Check your internet connection and try again.");
+    } finally {
+      btn.disabled = false; btn.textContent = "Save to website"; renderNotice();
+    }
+  }
+  $("btnSave").addEventListener("click", saveToWebsite);
   async function loadShowcase() {
     if (inViewer || !location.protocol.startsWith("http")) return null;
     try {
@@ -959,6 +1030,7 @@ Ideas (JSON): ${JSON.stringify(ideasForPrompt())}`;
     if (v === "forget") { store.del(LS_APIKEY); toast("Key removed from this browser."); }
   });
   if (inViewer) samplePromise.then((s) => { if (!s) { $("btnPrioritize").hidden = true; $("btnConnect").hidden = true; } });
+  if (!AI_ENABLED) ["btnPrioritize", "btnConnect", "btnPanel", "btnKey", "btnClearAI"].forEach((id) => { $(id).hidden = true; });
 
   // ---------- install as an app ----------
   // Chrome and Edge offer an install prompt; Safari uses File > Add to Dock instead.

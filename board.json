@@ -1,0 +1,29 @@
+{
+  "owner": "Anna",
+  "publishedAt": 1792526450477,
+  "notes": [
+    {
+      "id": "83qjqpfrj3",
+      "text": "Ideas café ☕ — weekly",
+      "kind": "repeat",
+      "x": 622,
+      "y": 245,
+      "rot": 3,
+      "z": 2,
+      "created": 1792526448351
+    },
+    {
+      "id": "lopt97wt4j",
+      "text": "second",
+      "kind": "repeat",
+      "x": 589,
+      "y": 362,
+      "rot": 0.3,
+      "z": 3,
+      "created": 1792526450419
+    }
+  ],
+  "strings": [],
+  "ai": null,
+  "updatedAt": 1792526450420
+}

@@ -19,9 +19,11 @@ A cork wall for all the ideas. Type an idea, tap a color, and it gets pinned to 
 
 **Sharing your board on the website**
 
-`⋯` → Share on my website… downloads `board.json`, a copy of your board with your name on it. Upload it to this repo (Add file → Upload files) to publish it. Visitors who open the app see that board first and can play with it, but their changes aren't saved and never touch yours. Start my own board gives them an empty board of their own in their browser. Without a `board.json`, the app opens with example notes.
+On your own laptop, `⋯` → Set up Save to website… asks once for your name and a GitHub key limited to this repo (Contents: Read and write). After that a Save to website button sits in the toolbar. It writes `board.json` to this repo, and the website shows it about a minute later. A red dot on the button means the board has changes that aren't on the website yet.
 
-**AI**
+Visitors see that board first. They can move things around, or Start my own board to get an empty board saved in their own browser. Nothing they do reaches the website: the Save button only exists in a browser that has your GitHub key, and GitHub refuses writes from anyone without one. Without a `board.json`, the app opens with example notes.
+
+**AI** (switched off for now: set `AI_ENABLED` to `true` in `index.html` to bring it back)
 
 - **Prioritize** ranks every note and explains each rank in one line.
 - **Connect the dots** pins dashed red strings between related ideas, labels each one, and lists the patterns it sees in the Case file panel.
